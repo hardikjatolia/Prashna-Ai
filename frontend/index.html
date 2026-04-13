@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Prashna AI · Study Tutor</title>
+  <meta name="description" content="Prashna AI — Your dedicated AI tutor for JEE, NEET, UPSC & more. Ask doubts, upload images, get step-by-step answers." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/style.css?v=3" />
+</head>
+<body>
+
+  <!-- ══ App Shell ═════════════════════════════════════════════════ -->
+  <div class="app">
+
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-top">
+        <div class="brand">
+          <img src="/static/logo.png" alt="Prashna AI Logo" class="brand-logo" />
+        </div>
+        <button class="icon-btn" id="newChatBtn" title="New chat">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        </button>
+      </div>
+
+      <div class="sidebar-search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <input type="text" id="searchInput" placeholder="Search conversations…" />
+      </div>
+
+      <nav class="chat-list" id="chatList" role="list"></nav>
+
+      <div class="sidebar-bottom">
+
+
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <main class="main">
+
+      <!-- Header -->
+      <header class="topbar">
+        <button class="icon-btn mobile-only" id="sidebarToggle">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
+        <h1 class="topbar-title" id="topbarTitle">New Conversation</h1>
+        <div class="topbar-actions">
+          <button class="icon-btn" id="themeToggle" title="Toggle theme">
+            <svg class="icon-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+            <svg class="icon-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          </button>
+          <button class="icon-btn" id="clearBtn" title="Clear chat">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+          </button>
+          <div class="user-avatar" id="userAvatar">U</div>
+        </div>
+      </header>
+
+      <!-- Messages -->
+      <div class="messages" id="messages" role="log" aria-live="polite">
+
+        <!-- Welcome -->
+        <div class="welcome" id="welcome">
+          <div class="welcome-orb-wrap">
+            <div class="welcome-orb-glow"></div>
+            <div class="welcome-orb"></div>
+          </div>
+          <h2 class="welcome-title" id="welcomeTitle">Good evening, Student</h2>
+          <p class="welcome-sub">I'm your expert teacher for JEE, NEET, and UPSC.<br/>Ask a question or try a practice prompt.</p>
+          <div class="suggestions" id="suggestions"></div>
+          <button class="refresh-btn" id="refreshBtn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.8"/></svg>
+            Refresh prompts
+          </button>
+        </div>
+
+      </div>
+
+      <!-- Input -->
+      <div class="input-area">
+        <div class="input-box" id="inputBox">
+          <textarea id="userInput" placeholder="Ask a question or topic..." rows="1" aria-label="Message"></textarea>
+          <div class="input-row">
+            <div class="input-left">
+              <button class="tool-btn web-search-btn" id="webSearchBtn" title="Toggle web search">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+              </button>
+
+            </div>
+            <button class="send-btn" id="sendBtn" disabled>
+              <svg id="sendIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+              <svg id="stopIcon" viewBox="0 0 24 24" fill="currentColor" style="display:none"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+            </button>
+          </div>
+        </div>
+        <p class="input-hint">Prashna AI only answers study &amp; exam-related doubts.</p>
+      </div>
+
+    </main>
+  </div>
+
+
+
+  <script src="/static/app.js?v=3"></script>
+</body>
+</html>
