@@ -29,7 +29,6 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
-    "vercel": "^32.0.0"
   },
   "devDependencies": {
     "@vercel/python": "^3.0.0"
