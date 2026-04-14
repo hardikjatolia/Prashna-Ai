@@ -8,15 +8,11 @@
     },
     {
       "source": "/static/(.*)",
-      "destination": "/frontend/static/$1"
-    },
-    {
-      "source": "/",
-      "destination": "/frontend/index.html"
+      "destination": "/static/$1"
     },
     {
       "source": "/(.*)",
-      "destination": "/frontend/index.html"
+      "destination": "/index.html"
     }
   ],
   "headers": [
