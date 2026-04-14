@@ -7,7 +7,7 @@ from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
-from huggingface_hub import InferenceClient
+from huggingface_hub import AsyncInferenceClient
 from duckduckgo_search import DDGS
 
 # ─── Configuration ────────────────────────────────────────────────
@@ -15,7 +15,7 @@ load_dotenv()
 HF_TOKEN  = os.getenv("HF_TOKEN")
 MODEL_ID  = "baidu/ERNIE-4.5-VL-28B-A3B-PT"
 
-client = InferenceClient(api_key=HF_TOKEN)
+client = AsyncInferenceClient(api_key=HF_TOKEN)
 
 # ─── App ──────────────────────────────────────────────────────────
 app = FastAPI(title="Prashna AI API", version="3.0.0")
@@ -176,7 +176,7 @@ async def chat_stream(req: ChatRequest):
 
         # ── Stream LLM response ────────────────────────────────────
         try:
-            stream = client.chat.completions.create(
+            stream = await client.chat.completions.create(
                 model=MODEL_ID,
                 messages=messages,
                 stream=True,
@@ -184,19 +184,20 @@ async def chat_stream(req: ChatRequest):
                 temperature=req.temperature,
             )
 
-            for chunk in stream:
+            async for chunk in stream:
                 if not hasattr(chunk, "choices") or not chunk.choices:
                     continue
                 delta = chunk.choices[0].delta
                 if delta and delta.content:
-                    yield f"data: {json.dumps({'token': delta.content, 'done': False})}\n\n"
+                    # Sync keys with app.js: 't' for token, 'd' for done
+                    yield f"data: {json.dumps({'t': delta.content, 'd': False})}\n\n"
 
-            yield f"data: {json.dumps({'token': '', 'done': True})}\n\n"
+            yield f"data: {json.dumps({'t': '', 'd': True})}\n\n"
 
         except Exception as e:
             error_msg = str(e)
             print(f"[LLM error] {error_msg}")
-            yield f"data: {json.dumps({'error': error_msg, 'done': True})}\n\n"
+            yield f"data: {json.dumps({'error': error_msg, 'd': True})}\n\n"
 
     return StreamingResponse(
         generate(),
