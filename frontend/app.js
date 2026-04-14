@@ -38,6 +38,7 @@ let cfg      = { ...DEFAULTS, ...JSON.parse(localStorage.getItem(SETT_KEY) || '{
 let activeChatId  = null;
 let abortCtrl     = null;
 let webSearchOn   = false;   // manual web search toggle
+let pendingImageB64 = null;  // base64 data-url of image to send
 
 
 // ── Suggestion pools ───────────────────────────────────────
@@ -76,7 +77,20 @@ const welcomeTitle= $('welcomeTitle');
 const uid    = () => Date.now().toString(36) + Math.random().toString(36).slice(2);
 const now    = () => new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
 const esc    = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-const saveChats = () => localStorage.setItem(CHATS_KEY, JSON.stringify(chats));
+const saveChats = () => {
+  // Strip image_url parts before writing to localStorage (quota protection)
+  const clean = chats.map(chat => ({
+    ...chat,
+    messages: chat.messages.map(m => ({
+      ...m,
+      image: null,
+      content: Array.isArray(m.content)
+        ? m.content.filter(p => p.type !== 'image_url')
+        : m.content,
+    })),
+  }));
+  localStorage.setItem(CHATS_KEY, JSON.stringify(clean));
+};
 const saveCfg   = () => localStorage.setItem(SETT_KEY,  JSON.stringify(cfg));
 const getChat   = id => chats.find(c => c.id === id);
 
@@ -216,6 +230,7 @@ function renderMessages(msgs) {
 }
 
 function addMsg(role, content, time, streaming = false, imageDataUrl = null) {
+  // imageDataUrl: base64 data-url string if an image was attached by the user
   welcomeEl.style.display = 'none';
 
   const row = document.createElement('div');
@@ -261,6 +276,17 @@ function addMsg(role, content, time, streaming = false, imageDataUrl = null) {
   const bubble = document.createElement('div');
   bubble.className = 'bubble';
 
+  // Render attached image inside user bubble
+  if (imageDataUrl && role === 'user') {
+    const imgWrap = document.createElement('div');
+    imgWrap.className = 'msg-img-wrap';
+    const img = document.createElement('img');
+    img.src = imageDataUrl;
+    img.className = 'msg-img';
+    img.alt = 'Attached image';
+    imgWrap.appendChild(img);
+    bubble.appendChild(imgWrap);
+  }
 
 
   if (!streaming) {
@@ -282,6 +308,11 @@ function addMsg(role, content, time, streaming = false, imageDataUrl = null) {
         textNode.textContent = content;
         bubble.appendChild(textNode);
       }
+    }
+  } else {
+    // For streaming messages, initialize empty content
+    if (role === 'assistant') {
+      bubble.innerHTML = '';
     }
   }
 
@@ -384,7 +415,7 @@ function scrollDown() { messagesEl.scrollTop = messagesEl.scrollHeight; }
 // ── Send ───────────────────────────────────────────────────
 async function send() {
   const text = inputEl.value.trim();
-  if (!text) return;
+  if (!text && !pendingImageB64) return;
 
   if (abortCtrl) { abortCtrl.abort(); return; }
 
@@ -396,24 +427,40 @@ async function send() {
   }
   const chat = getChat(activeChatId);
 
-  // User message (may include image)
-  const uMsg = { role:'user', content: text, time:now() };
-  chat.messages.push(uMsg);
-  saveChats();
+  // Build user message — multipart if image is attached
+  let uMsgContent;
+  const imageToSend = pendingImageB64;
+  if (imageToSend) {
+    uMsgContent = [
+      { type: 'text',      text: text || 'Analyze this image and answer accordingly.' },
+      { type: 'image_url', image_url: { url: imageToSend } },
+    ];
+  } else {
+    uMsgContent = text;
+  }
 
-  // Auto-title
+  const uMsg = { role:'user', content: uMsgContent, time:now(), image: imageToSend };
+  chat.messages.push(uMsg);
+  saveChats();  // saveChats() auto-strips image_url before writing to localStorage
+
+  // After saving, restore the full in-memory entry (with image) for this session
+  chat.messages[chat.messages.length - 1] = uMsg;
+
+  // Auto-title (use text portion)
+  const titleText = text || 'Image question';
   if (chat.messages.filter(m => m.role === 'user').length === 1) {
-    chat.title = (text || 'New Chat').slice(0, 46) + ((text || '').length > 46 ? '…' : '');
+    chat.title = titleText.slice(0, 46) + (titleText.length > 46 ? '…' : '');
     topbarTitle.textContent = chat.title;
     saveChats(); renderChatList();
   }
 
   // Render user message (with image if any)
-  addMsg('user', text, uMsg.time, false, null);
+  addMsg('user', text || '', uMsg.time, false, imageToSend);
   inputEl.value = '';
   autoResize();
 
   // Clear pending image
+  clearImagePreview();
 
 
   setBusy(true);
@@ -430,7 +477,16 @@ async function send() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        messages: chat.messages.map(m => ({ role:m.role, content:m.content })),
+        // Serialize messages: send multipart for messages that have image content,
+        // plain string for text-only messages. Strip large base64 from older history.
+        messages: chat.messages.map((m, idx) => {
+          const isLast = idx === chat.messages.length - 1;
+          // Only send image in the actual current message (already set on uMsg)
+          if (Array.isArray(m.content)) {
+            return { role: m.role, content: m.content };
+          }
+          return { role: m.role, content: m.content };
+        }),
         max_tokens:   cfg.maxTokens,
         temperature:  cfg.temperature,
         system_prompt: cfg.systemPrompt,
@@ -477,10 +533,10 @@ async function send() {
           continue;
         }
 
-        if (p.done) break;
+        if (p.d) break;
 
         // ── Regular token ────────────────────────────────────────
-        const tok = p.token || '';
+        const tok = p.t || '';
         raw += tok;
 
         // Ensure AI bubble exists (non-search path)
@@ -572,7 +628,41 @@ function closeSidebar() {
   $('sidebar').classList.remove('open');
 }
 
+// ── Image upload ───────────────────────────────────────────────────
+const imgUploadBtn  = $('imgUploadBtn');
+const imgFileInput  = $('imgFileInput');
+const imgPreviewEl  = $('imgPreview');
+const imgStripEl    = $('imgPreviewStrip');
+const imgRemoveBtn  = $('imgRemoveBtn');
 
+function clearImagePreview() {
+  pendingImageB64 = null;
+  imgStripEl.style.display = 'none';
+  imgPreviewEl.src = '';
+  imgFileInput.value = '';
+  imgUploadBtn.classList.remove('active');
+  // Re-evaluate send button
+  if (!abortCtrl) sendBtn.disabled = !inputEl.value.trim();
+}
+
+imgUploadBtn.addEventListener('click', () => imgFileInput.click());
+
+imgFileInput.addEventListener('change', () => {
+  const file = imgFileInput.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    pendingImageB64 = e.target.result;  // data:image/...;base64,...
+    imgPreviewEl.src = pendingImageB64;
+    imgStripEl.style.display = 'flex';
+    imgUploadBtn.classList.add('active');
+    sendBtn.disabled = false;  // can send with just an image
+    inputEl.focus();
+  };
+  reader.readAsDataURL(file);
+});
+
+imgRemoveBtn.addEventListener('click', clearImagePreview);
 
 // ── Web search toggle ─────────────────────────────────────────────
 const webSearchBtn = $('webSearchBtn');
@@ -589,7 +679,30 @@ inputEl.addEventListener('keydown', e => {
 });
 inputEl.addEventListener('input', () => {
   autoResize();
-  if (!abortCtrl) sendBtn.disabled = !inputEl.value.trim();
+  // can send if there's text OR a pending image
+  if (!abortCtrl) sendBtn.disabled = !(inputEl.value.trim() || pendingImageB64);
+});
+
+// Paste image from clipboard
+document.addEventListener('paste', e => {
+  const items = e.clipboardData?.items;
+  if (!items) return;
+  for (const item of items) {
+    if (item.type.startsWith('image/')) {
+      const file = item.getAsFile();
+      if (!file) continue;
+      const reader = new FileReader();
+      reader.onload = ev => {
+        pendingImageB64 = ev.target.result;
+        imgPreviewEl.src = pendingImageB64;
+        imgStripEl.style.display = 'flex';
+        imgUploadBtn.classList.add('active');
+        sendBtn.disabled = false;
+      };
+      reader.readAsDataURL(file);
+      break;
+    }
+  }
 });
 
 $('newChatBtn').addEventListener('click', () => { startNew(); closeSidebar(); });

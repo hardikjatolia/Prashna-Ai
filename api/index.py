@@ -1,6 +1,7 @@
 import os
 import json
 import asyncio
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,8 +11,9 @@ from huggingface_hub import InferenceClient
 from duckduckgo_search import DDGS
 
 # ─── Configuration ────────────────────────────────────────────────
+load_dotenv()
 HF_TOKEN  = os.getenv("HF_TOKEN")
-MODEL_ID  = "deepseek-ai/DeepSeek-R1"
+MODEL_ID  = "google/gemma-4-31B-it:novita"
 
 client = InferenceClient(api_key=HF_TOKEN)
 
@@ -26,9 +28,14 @@ app.add_middleware(
 )
 
 # ─── Pydantic models ──────────────────────────────────────────────
+class MessageContent(BaseModel):
+    type: str          # "text" or "image_url"
+    text: Optional[str] = None
+    image_url: Optional[dict] = None  # {"url": "data:image/...;base64,..."}
+
 class Message(BaseModel):
     role: str
-    content: str
+    content: str | List[MessageContent]  # str for plain text, list for multipart
 
 class ChatRequest(BaseModel):
     messages: List[Message]
@@ -93,10 +100,20 @@ def build_search_context(results: List[dict]) -> str:
     return "\n".join(lines)
 
 def build_llm_messages(req_messages: List[Message], system_content: str) -> List[dict]:
-    """Build plain-text messages for DeepSeek-R1."""
+    """Build messages for Gemma 4 (supports multipart image+text content)."""
     msgs = [{"role": "system", "content": system_content}]
     for msg in req_messages:
-        msgs.append({"role": msg.role, "content": msg.content})
+        if isinstance(msg.content, list):
+            # Multipart content (text + image)
+            parts = []
+            for part in msg.content:
+                if part.type == "text" and part.text:
+                    parts.append({"type": "text", "text": part.text})
+                elif part.type == "image_url" and part.image_url:
+                    parts.append({"type": "image_url", "image_url": part.image_url})
+            msgs.append({"role": msg.role, "content": parts})
+        else:
+            msgs.append({"role": msg.role, "content": msg.content})
     return msgs
 
 # ─── Routes ───────────────────────────────────────────────────────
@@ -106,7 +123,12 @@ async def chat_stream(req: ChatRequest):
     """Stream chat completions using DeepSeek-R1."""
 
     user_messages   = [m for m in req.messages if m.role == "user"]
-    latest_user_msg = user_messages[-1].content if user_messages else ""
+    last_msg = user_messages[-1].content if user_messages else ""
+    # Extract plain text for search/logging (ignore image parts)
+    if isinstance(last_msg, list):
+        latest_user_msg = " ".join(p.text for p in last_msg if p.type == "text" and p.text)
+    else:
+        latest_user_msg = last_msg
 
     should_search = needs_web_search(latest_user_msg, force=req.web_search)
 
@@ -156,8 +178,10 @@ async def chat_stream(req: ChatRequest):
             )
 
             for chunk in stream:
+                if not hasattr(chunk, "choices") or not chunk.choices:
+                    continue
                 delta = chunk.choices[0].delta
-                if delta.content:
+                if delta and delta.content:
                     yield f"data: {json.dumps({'token': delta.content, 'done': False})}\n\n"
 
             yield f"data: {json.dumps({'token': '', 'done': True})}\n\n"

@@ -1,6 +1,7 @@
 import os
 import json
 import asyncio
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -11,8 +12,9 @@ from huggingface_hub import InferenceClient
 from duckduckgo_search import DDGS
 
 # ─── Configuration ────────────────────────────────────────────────
+load_dotenv()
 HF_TOKEN  = os.getenv("HF_TOKEN")
-MODEL_ID  = "deepseek-ai/DeepSeek-R1"
+MODEL_ID  = "baidu/ERNIE-4.5-VL-28B-A3B-PT"
 
 client = InferenceClient(api_key=HF_TOKEN)
 
@@ -30,14 +32,19 @@ frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend")
 app.mount("/static", StaticFiles(directory=frontend_path), name="static")
 
 # ─── Pydantic models ──────────────────────────────────────────────
+class MessageContent(BaseModel):
+    type: str          # "text" or "image_url"
+    text: Optional[str] = None
+    image_url: Optional[dict] = None  # {"url": "data:image/...;base64,..."}
+
 class Message(BaseModel):
     role: str
-    content: str
+    content: str | List[MessageContent]  # str for plain text, list for multipart
 
 class ChatRequest(BaseModel):
     messages: List[Message]
-    max_tokens: Optional[int] = 2048
-    temperature: Optional[float] = 0.6
+    max_tokens: Optional[int] = 512
+    temperature: Optional[float] = 0.3
     system_prompt: Optional[str] = (
         "You are Prashna AI — a strict, expert teacher exclusively for competitive exam students (JEE, NEET, UPSC, GATE, etc.).\n"
         "TOPIC RESTRICTION (CRITICAL): You MUST ONLY answer questions that are related to academics, education, studying, "
@@ -47,6 +54,11 @@ class ChatRequest(BaseModel):
         "\"🎓 I'm Prashna AI — your dedicated study assistant! I can only help with academic doubts, exam prep, and "
         "study-related questions. Please ask me something related to your studies!\"\n"
         "Do NOT answer off-topic queries under any circumstances, even if the user insists.\n\n"
+        "CHEMICAL ACCURACY (CRITICAL): For chemistry questions, ensure ALL chemical formulas, equations, and structures are 100% accurate. "
+        "Benzyne is C6H4 (not C6H2), verify all molecular formulas, reaction mechanisms, and stoichiometry. "
+        "Double-check organic chemistry structures and inorganic compounds.\n\n"
+        "CHEMICAL EQUATION FORMATTING: Always write chemical equations in proper LaTeX format with clear compound labels. "
+        "Example: \\[ \\text{C}_6\\text{H}_5\\text{Cl} + \\text{NaNH}_2 \\rightarrow \\text{C}_6\\text{H}_4\\text{(benzyne)} + \\text{NaCl} + \\text{NH}_3 \\]\n\n"
         "For valid study questions, always structure your response exactly like this:\n"
         "### 📌 Step-by-Step Solution\n"
         "### 🧠 Simple Explanation\n"
@@ -99,10 +111,19 @@ def build_search_context(results: List[dict]) -> str:
     return "\n".join(lines)
 
 def build_llm_messages(req_messages: List[Message], system_content: str) -> List[dict]:
-    """Build plain-text messages for DeepSeek-R1."""
+    """Build messages for Gemma 4 (supports multipart image+text content)."""
     msgs = [{"role": "system", "content": system_content}]
     for msg in req_messages:
-        msgs.append({"role": msg.role, "content": msg.content})
+        if isinstance(msg.content, list):
+            parts = []
+            for part in msg.content:
+                if part.type == "text" and part.text:
+                    parts.append({"type": "text", "text": part.text})
+                elif part.type == "image_url" and part.image_url:
+                    parts.append({"type": "image_url", "image_url": part.image_url})
+            msgs.append({"role": msg.role, "content": parts})
+        else:
+            msgs.append({"role": msg.role, "content": msg.content})
     return msgs
 
 # ─── Routes ───────────────────────────────────────────────────────
@@ -116,7 +137,11 @@ async def chat_stream(req: ChatRequest):
     """Stream chat completions using DeepSeek-R1."""
 
     user_messages   = [m for m in req.messages if m.role == "user"]
-    latest_user_msg = user_messages[-1].content if user_messages else ""
+    last_msg = user_messages[-1].content if user_messages else ""
+    if isinstance(last_msg, list):
+        latest_user_msg = " ".join(p.text for p in last_msg if p.type == "text" and p.text)
+    else:
+        latest_user_msg = last_msg
 
     should_search = needs_web_search(latest_user_msg, force=req.web_search)
 
@@ -166,16 +191,18 @@ async def chat_stream(req: ChatRequest):
             )
 
             for chunk in stream:
+                if not hasattr(chunk, "choices") or not chunk.choices:
+                    continue
                 delta = chunk.choices[0].delta
-                if delta.content:
-                    yield f"data: {json.dumps({'token': delta.content, 'done': False})}\n\n"
+                if delta and delta.content:
+                    yield f"data: {json.dumps({'t': delta.content, 'd': False})}\n\n"
 
-            yield f"data: {json.dumps({'token': '', 'done': True})}\n\n"
+            yield f"data: {json.dumps({'t': '', 'd': True})}\n\n"
 
         except Exception as e:
             error_msg = str(e)
             print(f"[LLM error] {error_msg}")
-            yield f"data: {json.dumps({'error': error_msg, 'done': True})}\n\n"
+            yield f"data: {json.dumps({'error': error_msg, 'd': True})}\n\n"
 
     return StreamingResponse(
         generate(),
