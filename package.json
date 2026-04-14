@@ -1,0 +1,37 @@
+{
+  "name": "prashna-ai",
+  "version": "3.0.0",
+  "description": "Prashna AI - Advanced Study Assistant for Competitive Exams",
+  "main": "api/index.py",
+  "scripts": {
+    "dev": "vercel dev",
+    "build": "echo 'Build completed'",
+    "start": "vercel dev"
+  },
+  "keywords": [
+    "ai",
+    "education",
+    "study",
+    "competitive-exams",
+    "jee",
+    "neet",
+    "upsc",
+    "chatbot",
+    "tutor"
+  ],
+  "author": "Hardik Jatolia",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hardikjatolia/Prashna-Ai.git"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "vercel": "^32.0.0"
+  },
+  "devDependencies": {
+    "@vercel/python": "^3.0.0"
+  }
+}
