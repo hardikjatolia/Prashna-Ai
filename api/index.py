@@ -194,14 +194,14 @@ async def chat_stream(req: ChatRequest):
                     continue
                 delta = chunk.choices[0].delta
                 if delta and delta.content:
-                    yield f"data: {json.dumps({'token': delta.content, 'done': False})}\n\n"
+                    yield f"data: {json.dumps({'t': delta.content, 'd': False})}\n\n"
 
-            yield f"data: {json.dumps({'token': '', 'done': True})}\n\n"
+            yield f"data: {json.dumps({'t': '', 'd': True})}\n\n"
 
         except Exception as e:
             error_msg = str(e)
             print(f"[LLM error] {error_msg}")
-            yield f"data: {json.dumps({'error': error_msg, 'done': True})}\n\n"
+            yield f"data: {json.dumps({'error': error_msg, 'd': True})}\n\n"
 
     return StreamingResponse(
         generate(),
