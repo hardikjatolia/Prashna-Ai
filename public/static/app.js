@@ -96,6 +96,14 @@ const getChat   = id => chats.find(c => c.id === id);
 
 // ── Markdown ───────────────────────────────────────────────
 function md(text) {
+  if (typeof text !== 'string') return text;
+  const mathBlocks = [];
+  const stash = (m) => { mathBlocks.push(m); return `%%MATH_${mathBlocks.length-1}%%`; };
+  text = text.replace(/\\\[([\s\S]*?)\\\]/g, stash);
+  text = text.replace(/\$\$([\s\S]*?)\$\$/g, stash);
+  text = text.replace(/\\\(([\s\S]*?)\\\)/g, stash);
+  text = text.replace(/\$([^\$\n]+)\$/g, stash);
+
   text = text.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
     const safe = code.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     return `<div style="position:relative"><button class="copy-code" onclick="copyCode(this)">Copy</button><pre><code>${safe}</code></pre></div>`;
@@ -115,6 +123,11 @@ function md(text) {
     return `<p>${p}</p>`;
   }).join('');
   text = text.replace(/([^>])\n([^<])/g, '$1<br>$2');
+
+  text = text.replace(/%%MATH_(\d+)%%/g, (m, i) => {
+    return mathBlocks[i].replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  });
+
   return text;
 }
 window.copyCode = btn => {
@@ -133,6 +146,23 @@ function parseThink(raw) {
   return { thinking: null, answer: raw };
 }
 const wc = s => s.trim().split(/\s+/).length;
+
+// ── Math Rendering ──────────────────────────────────────────
+function renderMath(el) {
+  if (window.renderMathInElement) {
+    try {
+      renderMathInElement(el, {
+        delimiters: [
+          {left: '$$', right: '$$', display: true},
+          {left: '\\[', right: '\\]', display: true},
+          {left: '$', right: '$', display: false},
+          {left: '\\(', right: '\\)', display: false}
+        ],
+        throwOnError: false
+      });
+    } catch(e) {}
+  }
+}
 
 // ── Greeting ───────────────────────────────────────────────
 function updateGreeting() {
@@ -301,11 +331,14 @@ function addMsg(role, content, time, streaming = false, imageDataUrl = null) {
         thinkBody.classList.add('hidden');
       }
       bubble.innerHTML = md(p.answer || content);
+      renderMath(bubble);
     } else {
       if (content) {
         const textNode = document.createElement('p');
         textNode.style.margin = '0';
-        textNode.textContent = content;
+        textNode.textContent = Array.isArray(content) 
+          ? content.filter(c => c.type === 'text').map(c => c.text).join(' ') 
+          : content;
         bubble.appendChild(textNode);
       }
     }
@@ -414,10 +447,10 @@ function scrollDown() { messagesEl.scrollTop = messagesEl.scrollHeight; }
 
 // ── Send ───────────────────────────────────────────────────
 async function send() {
+  if (abortCtrl) { abortCtrl.abort(); return; }
+
   const text = inputEl.value.trim();
   if (!text && !pendingImageB64) return;
-
-  if (abortCtrl) { abortCtrl.abort(); return; }
 
   // Ensure chat
   if (!activeChatId) {
@@ -579,6 +612,7 @@ async function send() {
 
         // Update answer bubble
         aiEls.bubble.innerHTML = md(ansAcc || (inThink ? '' : raw));
+        renderMath(aiEls.bubble);
         scrollDown();
       }
     }

@@ -14,7 +14,7 @@ from duckduckgo_search import DDGS
 # ─── Configuration ────────────────────────────────────────────────
 load_dotenv()
 HF_TOKEN  = os.getenv("HF_TOKEN")
-MODEL_ID  = "baidu/ERNIE-4.5-VL-28B-A3B-PT"
+MODEL_ID  = "google/gemma-4-26B-A4B-it"
 
 client = InferenceClient(api_key=HF_TOKEN)
 
@@ -28,8 +28,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend")
-app.mount("/static", StaticFiles(directory=frontend_path), name="static")
+frontend_path = os.path.join(os.path.dirname(__file__), "..", "public")
+app.mount("/static", StaticFiles(directory=os.path.join(frontend_path, "static")), name="static")
 
 # ─── Pydantic models ──────────────────────────────────────────────
 class MessageContent(BaseModel):
@@ -59,6 +59,9 @@ class ChatRequest(BaseModel):
         "Double-check organic chemistry structures and inorganic compounds.\n\n"
         "CHEMICAL EQUATION FORMATTING: Always write chemical equations in proper LaTeX format with clear compound labels. "
         "Example: \\[ \\text{C}_6\\text{H}_5\\text{Cl} + \\text{NaNH}_2 \\rightarrow \\text{C}_6\\text{H}_4\\text{(benzyne)} + \\text{NaCl} + \\text{NH}_3 \\]\n\n"
+        "PHYSICS & MATH ACCURACY (CRITICAL): When solving numericals, like transformer EMF equations or proportionalities, work strictly step-by-step. "
+        "Explicitly express equations (e.g., E = 4.44 * f * N * B * A) and verify cancellations thoroughly before computing final values. "
+        "Double-check that operations across equations preserve correct mathematical logic.\n\n"
         "For valid study questions, always structure your response exactly like this:\n"
         "### 📌 Step-by-Step Solution\n"
         "### 🧠 Simple Explanation\n"
@@ -111,7 +114,7 @@ def build_search_context(results: List[dict]) -> str:
     return "\n".join(lines)
 
 def build_llm_messages(req_messages: List[Message], system_content: str) -> List[dict]:
-    """Build messages for Gemma 4 (supports multipart image+text content)."""
+    """Build messages for models (supports multipart image+text content)."""
     msgs = [{"role": "system", "content": system_content}]
     for msg in req_messages:
         if isinstance(msg.content, list):
@@ -168,6 +171,8 @@ async def chat_stream(req: ChatRequest):
             "If the user asks ANY off-topic question (e.g., movies, jokes, cooking, general chat, weather, programming projects), YOU MUST REPLY EXACTLY WITH:\n"
             "\"🎓 I'm Prashna AI — your dedicated study assistant! I can only help with academic doubts, exam prep, and study-related questions. Please ask me something related to your studies!\"\n"
             "Do NOT provide any other response for off-topic queries.\n\n"
+            "PHYSICS & MATH ACCURACY: For numerical problems (like physics and transformer equations), solve step-by-step. "
+            "Write the formula, isolate variables, substitute values, and perform algebra cautiously. Double-check ratio cancellations.\n\n"
             + system_content
         )
 
