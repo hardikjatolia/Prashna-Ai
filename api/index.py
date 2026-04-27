@@ -13,7 +13,7 @@ from duckduckgo_search import DDGS
 # ─── Configuration ────────────────────────────────────────────────
 load_dotenv()
 HF_TOKEN  = os.getenv("HF_TOKEN")
-MODEL_ID  = "google/gemma-4-26B-A4B-it"
+MODEL_ID  = "moonshotai/Kimi-K2.6"
 
 client = InferenceClient(api_key=HF_TOKEN)
 
