@@ -3,13 +3,13 @@
    ══════════════════════════════════════════════════════════ */
 
 // ── Config ────────────────────────────────────────────────
-const STREAM_URL  = '/api/chat/stream';
-const CHATS_KEY   = 'prashna_chats';
-const SETT_KEY    = 'prashna_settings_v2';
-const THEME_KEY   = 'prashna_theme';
+const STREAM_URL = '/api/chat/stream';
+const CHATS_KEY = 'prashna_chats';
+const SETT_KEY = 'prashna_settings_v2';
+const THEME_KEY = 'prashna_theme';
 
 const DEFAULTS = {
-  systemPrompt : `You are Prashna AI — a strict expert teacher exclusively for JEE, NEET, UPSC, GATE & other competitive exam students.
+  systemPrompt: `You are Prashna AI — a strict expert teacher exclusively for JEE, NEET, UPSC, GATE & other competitive exam students.
 TOPIC RESTRICTION (CRITICAL): You MUST ONLY answer questions related to academics, education, studying, science, maths, history, geography, polity, economics, competitive exam prep, and school/college subjects.
 If someone asks ANYTHING unrelated to studies (movies, cricket, cooking, relationships, jokes, weather, news, etc.) refuse with:
 "🎓 I'm Prashna AI — your dedicated study assistant! I can only help with academic doubts, exam prep, and study-related questions. Please ask me something related to your studies!"
@@ -27,56 +27,56 @@ OUTPUT FORMAT (for valid study questions):
 
 If an image is shared, analyze it carefully (question paper, diagram, equation, textbook page) and answer accordingly.
 Rules: Never skip steps. Focus on intuition. Add memory tricks. Support 'Explain Like I'm 10', 'Only Revision Mode', and 'Test Me' if asked.`,
-  maxTokens    : 4096,
-  temperature  : 0.5,
-  userName     : 'Student',
+  maxTokens: 4096,
+  temperature: 0.5,
+  userName: 'Student',
 };
 
 // ── State ─────────────────────────────────────────────────
-let chats    = JSON.parse(localStorage.getItem(CHATS_KEY) || '[]');
-let cfg      = { ...DEFAULTS, ...JSON.parse(localStorage.getItem(SETT_KEY) || '{}') };
-let activeChatId  = null;
-let abortCtrl     = null;
-let webSearchOn   = false;   // manual web search toggle
+let chats = JSON.parse(localStorage.getItem(CHATS_KEY) || '[]');
+let cfg = { ...DEFAULTS, ...JSON.parse(localStorage.getItem(SETT_KEY) || '{}') };
+let activeChatId = null;
+let abortCtrl = null;
+let webSearchOn = false;   // manual web search toggle
 let pendingImageB64 = null;  // base64 data-url of image to send
 
 
 // ── Suggestion pools ───────────────────────────────────────
 const POOLS = [
   [
-    { icon:'⚛️', text:'Explain Physics concept',    prompt:'Explain the concept of moment of inertia like I\'m 10.' },
-    { icon:'➗', text:'Solve Math problem',         prompt:'Solve this step-by-step: ∫ x^2 e^x dx.' },
-    { icon:'🧬', text:'Biology revision notes',     prompt:'Only Revision Mode: Important points for Human Physiology.' },
-    { icon:'📅', text:'Create study timetable',     prompt:'Create a 30-day study plan for JEE Main physics.' },
+    { icon: '⚛️', text: 'Explain Physics concept', prompt: 'Explain the concept of moment of inertia like I\'m 10.' },
+    { icon: '➗', text: 'Solve Math problem', prompt: 'Solve this step-by-step: ∫ x^2 e^x dx.' },
+    { icon: '🧬', text: 'Biology revision notes', prompt: 'Only Revision Mode: Important points for Human Physiology.' },
+    { icon: '📅', text: 'Create study timetable', prompt: 'Create a 30-day study plan for JEE Main physics.' },
   ],
   [
-    { icon:'🔥', text:'Tricks & Shortcuts',         prompt:'Give me a memory trick to remember the Periodic Table.' },
-    { icon:'📝', text:'Test Me on a concept',       prompt:'Test Me on Newton\'s Laws of Motion.' },
-    { icon:'🤔', text:'Simplify a topic',           prompt:'I am confused about hybridization in Chemistry, can you simplify it?' },
-    { icon:'📖', text:'UPSC Prep advice',           prompt:'What are the most important topics in Indian Polity for UPSC?' },
+    { icon: '🔥', text: 'Tricks & Shortcuts', prompt: 'Give me a memory trick to remember the Periodic Table.' },
+    { icon: '📝', text: 'Test Me on a concept', prompt: 'Test Me on Newton\'s Laws of Motion.' },
+    { icon: '🤔', text: 'Simplify a topic', prompt: 'I am confused about hybridization in Chemistry, can you simplify it?' },
+    { icon: '📖', text: 'UPSC Prep advice', prompt: 'What are the most important topics in Indian Polity for UPSC?' },
   ]
 ];
 let poolIdx = 0;
 
 // ── DOM refs ───────────────────────────────────────────────
 const $ = id => document.getElementById(id);
-const body        = document.body;
-const htmlEl      = document.documentElement;
-const messagesEl  = $('messages');
-const welcomeEl   = $('welcome');
-const inputEl     = $('userInput');
-const sendBtn     = $('sendBtn');
-const sendIcon    = $('sendIcon');
-const stopIcon    = $('stopIcon');
-const chatListEl  = $('chatList');
+const body = document.body;
+const htmlEl = document.documentElement;
+const messagesEl = $('messages');
+const welcomeEl = $('welcome');
+const inputEl = $('userInput');
+const sendBtn = $('sendBtn');
+const sendIcon = $('sendIcon');
+const stopIcon = $('stopIcon');
+const chatListEl = $('chatList');
 const topbarTitle = $('topbarTitle');
-const userAvatar  = $('userAvatar');
-const welcomeTitle= $('welcomeTitle');
+const userAvatar = $('userAvatar');
+const welcomeTitle = $('welcomeTitle');
 
 // ── Utils ──────────────────────────────────────────────────
-const uid    = () => Date.now().toString(36) + Math.random().toString(36).slice(2);
-const now    = () => new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' });
-const esc    = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2);
+const now = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const saveChats = () => {
   // Strip image_url parts before writing to localStorage (quota protection)
   const clean = chats.map(chat => ({
@@ -91,29 +91,29 @@ const saveChats = () => {
   }));
   localStorage.setItem(CHATS_KEY, JSON.stringify(clean));
 };
-const saveCfg   = () => localStorage.setItem(SETT_KEY,  JSON.stringify(cfg));
-const getChat   = id => chats.find(c => c.id === id);
+const saveCfg = () => localStorage.setItem(SETT_KEY, JSON.stringify(cfg));
+const getChat = id => chats.find(c => c.id === id);
 
 // ── Markdown ───────────────────────────────────────────────
 function md(text) {
   if (typeof text !== 'string') return text;
   const mathBlocks = [];
-  const stash = (m) => { mathBlocks.push(m); return `%%MATH_${mathBlocks.length-1}%%`; };
+  const stash = (m) => { mathBlocks.push(m); return `%%MATH_${mathBlocks.length - 1}%%`; };
   text = text.replace(/\\\[([\s\S]*?)\\\]/g, stash);
   text = text.replace(/\$\$([\s\S]*?)\$\$/g, stash);
   text = text.replace(/\\\(([\s\S]*?)\\\)/g, stash);
   text = text.replace(/\$([^\$\n]+)\$/g, stash);
 
   text = text.replace(/```(\w*)\n?([\s\S]*?)```/g, (_, lang, code) => {
-    const safe = code.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const safe = code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     return `<div style="position:relative"><button class="copy-code" onclick="copyCode(this)">Copy</button><pre><code>${safe}</code></pre></div>`;
   });
   text = text.replace(/`([^`\n]+)`/g, '<code>$1</code>');
   text = text.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
   text = text.replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
   text = text.replace(/^### (.+)$/gm, '<h3>$1</h3>');
-  text = text.replace(/^## (.+)$/gm,  '<h2>$1</h2>');
-  text = text.replace(/^# (.+)$/gm,   '<h1>$1</h1>');
+  text = text.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  text = text.replace(/^# (.+)$/gm, '<h1>$1</h1>');
   text = text.replace(/^\s*[-*]\s+(.+)$/gm, '<li>$1</li>');
   text = text.replace(/(<li>.*?<\/li>\n?)+/g, m => `<ul>${m}</ul>`);
   text = text.replace(/^\d+\.\s+(.+)$/gm, '<li>$1</li>');
@@ -153,14 +153,14 @@ function renderMath(el) {
     try {
       renderMathInElement(el, {
         delimiters: [
-          {left: '$$', right: '$$', display: true},
-          {left: '\\[', right: '\\]', display: true},
-          {left: '$', right: '$', display: false},
-          {left: '\\(', right: '\\)', display: false}
+          { left: '$$', right: '$$', display: true },
+          { left: '\\[', right: '\\]', display: true },
+          { left: '$', right: '$', display: false },
+          { left: '\\(', right: '\\)', display: false }
         ],
         throwOnError: false
       });
-    } catch(e) {}
+    } catch (e) { }
   }
 }
 
@@ -174,16 +174,9 @@ function updateGreeting() {
 
 // ── Theme ──────────────────────────────────────────────────
 function applyTheme(t) {
-  htmlEl.setAttribute('data-theme', t);
-  localStorage.setItem(THEME_KEY, t);
-  const sunIcon  = document.querySelector('.icon-sun');
-  const moonIcon = document.querySelector('.icon-moon');
-  if (t === 'dark') { sunIcon.style.display = 'none'; moonIcon.style.display = 'block'; }
-  else               { sunIcon.style.display = 'block'; moonIcon.style.display = 'none'; }
+  htmlEl.setAttribute('data-theme', 'dark');
+  localStorage.setItem(THEME_KEY, 'dark');
 }
-$('themeToggle').addEventListener('click', () => {
-  applyTheme(htmlEl.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
-});
 
 // ── Suggestions ────────────────────────────────────────────
 function renderSuggestions() {
@@ -336,8 +329,8 @@ function addMsg(role, content, time, streaming = false, imageDataUrl = null) {
       if (content) {
         const textNode = document.createElement('p');
         textNode.style.margin = '0';
-        textNode.textContent = Array.isArray(content) 
-          ? content.filter(c => c.type === 'text').map(c => c.text).join(' ') 
+        textNode.textContent = Array.isArray(content)
+          ? content.filter(c => c.type === 'text').map(c => c.text).join(' ')
           : content;
         bubble.appendChild(textNode);
       }
@@ -437,7 +430,7 @@ function renderSources(col, sources) {
       a.rel = 'noopener noreferrer';
       a.innerHTML = `<span class="source-num">${i + 1}</span><span>${esc(s.title || host)}</span>`;
       block.appendChild(a);
-    } catch {}
+    } catch { }
   });
   col.appendChild(block);
   scrollDown();
@@ -465,14 +458,14 @@ async function send() {
   const imageToSend = pendingImageB64;
   if (imageToSend) {
     uMsgContent = [
-      { type: 'text',      text: text || 'Analyze this image and answer accordingly.' },
+      { type: 'text', text: text || 'Analyze this image and answer accordingly.' },
       { type: 'image_url', image_url: { url: imageToSend } },
     ];
   } else {
     uMsgContent = text;
   }
 
-  const uMsg = { role:'user', content: uMsgContent, time:now(), image: imageToSend };
+  const uMsg = { role: 'user', content: uMsgContent, time: now(), image: imageToSend };
   chat.messages.push(uMsg);
   saveChats();  // saveChats() auto-strips image_url before writing to localStorage
 
@@ -520,10 +513,10 @@ async function send() {
           }
           return { role: m.role, content: m.content };
         }),
-        max_tokens:   cfg.maxTokens,
-        temperature:  cfg.temperature,
+        max_tokens: cfg.maxTokens,
+        temperature: cfg.temperature,
         system_prompt: cfg.systemPrompt,
-        web_search:   webSearchOn,
+        web_search: webSearchOn,
       }),
       signal: abortCtrl.signal,
     });
@@ -537,7 +530,7 @@ async function send() {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      buf += dec.decode(value, { stream:true });
+      buf += dec.decode(value, { stream: true });
       const lines = buf.split('\n');
       buf = lines.pop();
 
@@ -585,7 +578,7 @@ async function send() {
             const ci = raw.indexOf('</think>');
             if (ci !== -1) {
               thinkAcc = raw.slice(7, ci);
-              ansAcc   = raw.slice(ci + 8);
+              ansAcc = raw.slice(ci + 8);
               thinkDone = true; inThink = false;
             } else {
               thinkAcc = raw.slice(7);
@@ -622,14 +615,14 @@ async function send() {
       renderSources(aiEls.col, searchSources);
     }
 
-    chat.messages.push({ role:'assistant', content:raw, time:now() });
+    chat.messages.push({ role: 'assistant', content: raw, time: now() });
     saveChats();
 
   } catch (err) {
     removeTyping();
     removeSearching();
     if (err.name === 'AbortError') {
-      if (raw) { chat.messages.push({ role:'assistant', content:raw + '\n\n*(stopped)*', time:now() }); saveChats(); }
+      if (raw) { chat.messages.push({ role: 'assistant', content: raw + '\n\n*(stopped)*', time: now() }); saveChats(); }
     } else {
       if (!aiEls) aiEls = addMsg('assistant', '', now(), true);
       aiEls.bubble.innerHTML = `<span style="color:#ef4444">⚠ ${esc(err.message)}</span>`;
@@ -663,11 +656,11 @@ function closeSidebar() {
 }
 
 // ── Image upload ───────────────────────────────────────────────────
-const imgUploadBtn  = $('imgUploadBtn');
-const imgFileInput  = $('imgFileInput');
-const imgPreviewEl  = $('imgPreview');
-const imgStripEl    = $('imgPreviewStrip');
-const imgRemoveBtn  = $('imgRemoveBtn');
+const imgUploadBtn = $('imgUploadBtn');
+const imgFileInput = $('imgFileInput');
+const imgPreviewEl = $('imgPreview');
+const imgStripEl = $('imgPreviewStrip');
+const imgRemoveBtn = $('imgRemoveBtn');
 
 function clearImagePreview() {
   pendingImageB64 = null;
@@ -778,7 +771,7 @@ document.addEventListener('keydown', e => {
 // ── Init ───────────────────────────────────────────────────
 (function init() {
   // Theme
-  applyTheme(localStorage.getItem(THEME_KEY) || 'light');
+  applyTheme('dark'); // Forced Liquid Glass Theme
   // Greeting & avatar
   updateGreeting();
   // Suggestions
